@@ -1,0 +1,22 @@
+# Single-node kind cluster for kplane-kine.
+#
+# Two NodePort host-port mappings so the bench process (running on the
+# laptop, not in-cluster) can hit each apiserver directly without
+# port-forward overhead skewing latency numbers.
+#
+# Pinned node image so CI and local runs are bit-identical.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: kplane-kine
+nodes:
+  - role: control-plane
+    image: kindest/node:v1.32.0@sha256:c48c62eac5da28cdadcf560d1d8616cfa6783b58f0d94cf63ad1bf49600cb027
+    extraPortMappings:
+      # kine-backed apiserver
+      - containerPort: 30443
+        hostPort: 6443
+        protocol: TCP
+      # etcd-backed apiserver
+      - containerPort: 30444
+        hostPort: 6444
+        protocol: TCP

@@ -1,0 +1,95 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kplane-apiserver
+  namespace: etcd-baseline
+---
+# The etcd-backed apiserver. Identical to the kine-backed twin except
+# --etcd-servers points at the single-node etcd in this namespace.
+# Same image, same flags, same probes, same resource envelope — the
+# benchmark is meant to measure the storage backend, not the apiserver.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kplane-apiserver
+  namespace: etcd-baseline
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kplane-apiserver
+  template:
+    metadata:
+      labels:
+        app: kplane-apiserver
+    spec:
+      serviceAccountName: kplane-apiserver
+      containers:
+        - name: apiserver
+          image: kplanedev/apiserver:v0.0.10
+          imagePullPolicy: IfNotPresent
+          args:
+            - --etcd-servers=http://etcd.etcd-baseline.svc:2379
+            - --etcd-prefix=/registry
+            - --secure-port=6443
+            - --service-cluster-ip-range=10.96.0.0/12
+            - --allow-privileged=true
+            - --authorization-mode=AlwaysAllow
+            - --anonymous-auth=true
+            - --token-auth-file=/var/run/kplane/auth/token.csv
+            - --tls-cert-file=/var/run/kplane/tls/tls.crt
+            - --tls-private-key-file=/var/run/kplane/tls/tls.key
+            - --client-ca-file=/var/run/kplane/tls/ca.crt
+            - --service-account-issuer=https://kplane-kine.local
+            - --api-audiences=https://kplane-kine.local
+            - --service-account-key-file=/var/run/kplane/sa/sa.pub
+            - --service-account-signing-key-file=/var/run/kplane/sa/sa.key
+            - --service-account-lookup=false
+            - --root-control-plane-name=root
+            - --v=2
+          ports:
+            - name: https
+              containerPort: 6443
+          volumeMounts:
+            - name: tls
+              mountPath: /var/run/kplane/tls
+              readOnly: true
+            - name: sa
+              mountPath: /var/run/kplane/sa
+              readOnly: true
+            - name: auth
+              mountPath: /var/run/kplane/auth
+              readOnly: true
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 1Gi
+          startupProbe:
+            tcpSocket:
+              port: https
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            tcpSocket:
+              port: https
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket:
+              port: https
+            periodSeconds: 20
+            failureThreshold: 6
+      volumes:
+        - name: tls
+          secret:
+            secretName: kplane-apiserver-tls
+        - name: sa
+          secret:
+            secretName: kplane-apiserver-sa
+        - name: auth
+          secret:
+            secretName: kplane-apiserver-token-auth

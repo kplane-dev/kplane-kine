@@ -1,0 +1,77 @@
+name: ci
+
+# Runs the same script as `make ci` locally — if it passes on your
+# laptop, it passes here. The merge gate is "this workflow is green."
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  ci:
+    name: kind up → bench → down
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install kind
+        uses: helm/kind-action@v1
+        with:
+          install_only: true
+
+      - name: Install shellcheck
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+
+      - name: Pre-pull container images (host)
+        run: |
+          docker pull postgres:16-alpine
+          docker pull ghcr.io/k3s-io/kine:v0.15.0
+          docker pull quay.io/coreos/etcd:v3.5.17
+          docker pull kplanedev/apiserver:v0.0.10
+          docker pull kindest/node:v1.32.0
+        # Any pull failure here is loud + before kind tries to pull
+        # again inside its own containerd.
+
+      - name: Create kind cluster (early)
+        # We create the cluster up-front so we can sideload images
+        # into its containerd before make ci runs. up.sh's stage 1
+        # is idempotent — make ci's up.sh sees an existing cluster
+        # and skips creation.
+        run: kind create cluster --config kind/cluster.yaml --wait 60s
+
+      - name: Sideload images into kind containerd
+        # GH Actions runners (2 vCPU) pull images slowly. kind nodes
+        # have their own containerd separate from the host docker, so
+        # the host-side `docker pull` above doesn't help kubelet —
+        # `kind load docker-image` copies them in.
+        run: |
+          for img in postgres:16-alpine ghcr.io/k3s-io/kine:v0.15.0 \
+                     quay.io/coreos/etcd:v3.5.17 kplanedev/apiserver:v0.0.10; do
+            kind load docker-image "$img" --name kplane-kine
+          done
+
+      - name: make ci
+        env:
+          OPS: 50          # keep CI quick; real perf runs are local + nightly
+          CONCURRENCY: 4
+        run: make ci
+
+      - name: Upload bench results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-results
+          path: |
+            .local/bench/*.json
+            .local/bench/SUMMARY.md
+          if-no-files-found: warn

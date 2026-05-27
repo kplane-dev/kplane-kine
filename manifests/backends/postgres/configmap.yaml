@@ -1,0 +1,38 @@
+# Postgres configuration mounted into /etc/postgresql/postgresql.conf
+# and merged via include in the postgres entrypoint. Values picked to
+# be honest defaults — see docs/architecture.md for the rationale on
+# each line. Anything explicitly absent here intentionally inherits
+# the upstream default.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-config
+  namespace: kine-pg
+data:
+  postgresql.conf: |
+    # Network — the postgres default is listen_addresses='localhost',
+    # which is fine for the in-pod readiness probe but blocks every
+    # actual cluster client (kine, bench, etc.). Override to '*' so
+    # the headless Service routes real traffic in.
+    listen_addresses = '*'
+
+    # Memory
+    shared_buffers = 128MB
+    wal_buffers = 8MB
+    effective_cache_size = 384MB
+
+    # Durability — we want a fsync-real comparison vs. etcd, NOT a
+    # tuned-for-speed postgres. A future PR can publish a
+    # synchronous_commit=off variant alongside the baseline.
+    synchronous_commit = on
+    wal_level = replica
+    fsync = on
+
+    # Connections — kine's pool size + a small margin
+    max_connections = 100
+
+    # Observability
+    log_min_duration_statement = 100ms
+    log_connections = on
+    log_disconnections = on
+    log_destination = 'stderr'

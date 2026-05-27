@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: kine-pg
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: postgres
+              containerPort: 5432
+          envFrom:
+            - secretRef:
+                name: postgres-credentials
+          # Postgres' image runs init scripts from /docker-entrypoint-initdb.d/.
+          # We use a tiny init script to copy our config in place, then let
+          # the entrypoint's normal flow start postgres with -c
+          # config_file=/etc/postgresql/postgresql.conf.
+          args:
+            - "-c"
+            - "config_file=/etc/postgresql/postgresql.conf"
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+              subPath: pgdata
+            - name: config
+              mountPath: /etc/postgresql/postgresql.conf
+              subPath: postgresql.conf
+              readOnly: true
+          resources:
+            requests:
+              # Requests deliberately small so the whole stack fits on
+              # a 2-vCPU CI runner. Bursting under load is fine —
+              # limits give each pod room to use what it needs.
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "2"
+              memory: 1Gi
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "kine", "-d", "kine"]
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "kine", "-d", "kine"]
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+      volumes:
+        - name: config
+          configMap:
+            name: postgres-config
+            items:
+              - key: postgresql.conf
+                path: postgresql.conf
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
