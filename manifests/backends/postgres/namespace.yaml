@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kine-pg
+  labels:
+    # Convention: every stack carries the storage-backend label so
+    # logs, metrics, and resource accounting tools can group/filter
+    # by backend without hard-coding namespace names.
+    kplane-kine.storage-backend: kine-postgres
