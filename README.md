@@ -60,8 +60,6 @@ Hardware matters — the same code shows different ratios on different machines.
 - **Tail latency**: etcd p99 is 2–7× tighter on local, up to 14× tighter under CI contention. This is the most consistent signal because reads are the cheapest op — any extra hop shows up cleanly without being smeared by write amplification or fsync variance.
 - **Watch latency** (not in the table): kine's default poll interval is **1 second**, so first-event-after-write latency floors there vs. etcd's sub-millisecond push notifications. Tunable down to ~100ms at the cost of idle DB query load.
 
-These numbers fall in the broadly-reported band for kine ([2–5× slower reads, 3–10× slower writes](https://github.com/k3s-io/kine)). Kine's own docs note it's "tested for k3s use, not a drop-in etcd replacement" — that holds up.
-
 **When kine→postgres is the right call:** small or medium cluster, the team already runs postgres, p99 isn't load-bearing, and operational ergonomics (backups, replication, monitoring) outweighs the throughput cost.
 
 **When it isn't:** hot multicluster apiserver, lots of watchers, tail latency is a customer-visible signal.
