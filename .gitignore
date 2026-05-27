@@ -1,0 +1,27 @@
+# Local kind state
+kind/.kubeconfig
+*.kubeconfig
+
+# Go
+bin/
+.bin/
+*.test
+*.prof
+*.out
+
+# Benchmark outputs (the checked-in baseline lives in docs/results/)
+bench/results/*.json
+bench/results/*.csv
+!bench/results/.gitkeep
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# Secrets (none should ever be checked in; explicit deny for the common ones)
+*.pem
+*.key
+postgres-password*
+exe-dev-token*
