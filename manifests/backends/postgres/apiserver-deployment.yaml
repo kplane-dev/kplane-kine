@@ -1,0 +1,114 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kplane-apiserver
+  namespace: kine-pg
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kplane-apiserver
+  namespace: kine-pg
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kplane-apiserver
+  template:
+    metadata:
+      labels:
+        app: kplane-apiserver
+    spec:
+      serviceAccountName: kplane-apiserver
+      containers:
+        - name: apiserver
+          image: kplanedev/apiserver:v0.0.10
+          imagePullPolicy: IfNotPresent
+          args:
+            # Storage — pointed at kine, which fronts postgres.
+            - --etcd-servers=http://kine.kine-pg.svc:2379
+            - --etcd-prefix=/registry
+            # Network
+            - --secure-port=6443
+            - --service-cluster-ip-range=10.96.0.0/12
+            - --allow-privileged=true
+            # Auth — permissive for the benchmark cluster. AlwaysAllow
+            # skips RBAC entirely; the static admin token covers all
+            # the API calls the bench + e2e need to make. DO NOT copy
+            # this pattern to production.
+            - --authorization-mode=AlwaysAllow
+            - --anonymous-auth=true
+            - --token-auth-file=/var/run/kplane/auth/token.csv
+            # TLS
+            - --tls-cert-file=/var/run/kplane/tls/tls.crt
+            - --tls-private-key-file=/var/run/kplane/tls/tls.key
+            - --client-ca-file=/var/run/kplane/tls/ca.crt
+            # ServiceAccounts (required even if we never mint SAs)
+            - --service-account-issuer=https://kplane-kine.local
+            - --api-audiences=https://kplane-kine.local
+            - --service-account-key-file=/var/run/kplane/sa/sa.pub
+            - --service-account-signing-key-file=/var/run/kplane/sa/sa.key
+            - --service-account-lookup=false
+            # Multicluster — defaults handle /clusters/{cp}/control-plane/
+            # path extraction.
+            - --root-control-plane-name=root
+            - --v=2
+          ports:
+            - name: https
+              containerPort: 6443
+          volumeMounts:
+            - name: tls
+              mountPath: /var/run/kplane/tls
+              readOnly: true
+            - name: sa
+              mountPath: /var/run/kplane/sa
+              readOnly: true
+            - name: auth
+              mountPath: /var/run/kplane/auth
+              readOnly: true
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 1Gi
+          # Probes are TCP-socket, not HTTP, because the apiserver's
+          # /livez and /readyz return 401 to unauthenticated probes in
+          # this build (anonymous-auth + AlwaysAllow doesn't apply to
+          # the health endpoints). TCP socket = "is the apiserver
+          # serving connections?", which is the actual liveness signal
+          # we care about. up.sh runs a real authenticated /healthz +
+          # multi-CP CRUD smoke test after the rollout to verify the
+          # apiserver is healthy beyond just "port open."
+          #
+          # Generous startupProbe budget (5 min) because kine's first
+          # sync against postgres is materially slower than etcd —
+          # docs/research.md predicted this; we observe it taking
+          # 60-90s on a fresh kind node.
+          startupProbe:
+            tcpSocket:
+              port: https
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            tcpSocket:
+              port: https
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket:
+              port: https
+            periodSeconds: 20
+            failureThreshold: 6
+      volumes:
+        - name: tls
+          secret:
+            secretName: kplane-apiserver-tls
+        - name: sa
+          secret:
+            secretName: kplane-apiserver-sa
+        - name: auth
+          secret:
+            secretName: kplane-apiserver-token-auth

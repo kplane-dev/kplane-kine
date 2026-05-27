@@ -2,6 +2,9 @@
 kind/.kubeconfig
 *.kubeconfig
 
+# Per-run generated certs (gen-certs.sh writes here)
+.local/
+
 # Go
 bin/
 .bin/

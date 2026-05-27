@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: kplane-apiserver
+  namespace: kine-pg
+spec:
+  # NodePort so the bench process — running on the laptop — can hit
+  # the apiserver directly via the kind extraPortMapping (host 6443
+  # ↔ node 30443). In-cluster clients use the ClusterIP at :6443.
+  type: NodePort
+  selector:
+    app: kplane-apiserver
+  ports:
+    - name: https
+      port: 6443
+      targetPort: https
+      nodePort: 30443
